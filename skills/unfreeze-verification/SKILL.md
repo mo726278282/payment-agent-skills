@@ -1,32 +1,32 @@
 ---
-name: order-verification-pipeline
-description: 订单超时/冻结后的多步验证流水线模式 — 在放行资金前逐项检查系统健康状态。适用于支付、借贷、提现等需要风控验证的金融系统。
+name: unfreeze-verification
+description: Multi-step verification pipeline for held orders — checks system health before releasing funds. For payment, lending, and withdrawal systems that need risk-control verification.
 tags: [payment, verification, pipeline, timeout, hold, risk-control]
 ---
 
-# Order Verification Pipeline（订单验证流水线）
+# Order Verification Pipeline
 
-当订单超时进入冻结（HOLD）状态后，需要经过多步验证才能自动解冻或取消。
+When an order times out and enters HOLD, it should pass a series of checks before automatic release or cancellation. Don't release funds on a hunch.
 
-## 双路径模式
-
-```
-订单超时
-  ├── 首次超时路径（TIMEOUT）
-  │     └── 查询: 创建时间在 N~M 分钟前的待处理订单
-  └── 重试路径（HOLD_RETRY）
-        └── 查询: 已有 HOLD 标记的订单，定期重试验证
-```
-
-**关键原则**: 两个路径的验证逻辑必须完全一致。只改一个会导致行为不同，这是最容易出 bug 的地方。
-
-## 多步验证 Pipeline
+## Dual-Path Pattern
 
 ```
-① 采集端在线检查        — 数据源是否存活
-② 数据源探测            — 主动调用数据源验证可访问性
-③ 数据一致性校验        — 关键字段是否与数据源一致
-④ 时间顺序校验          — 数据更新时间是否晚于订单时间
+Order timeout
+  ├── TIMEOUT path (first timeout)
+  │     └── Query: pending orders created N~M minutes ago
+  └── HOLD_RETRY path (retry)
+        └── Query: already-held orders, retry verification on interval
+```
+
+**The rule that prevents most bugs**: both paths run the same verification logic. Change one, change the other. Every time.
+
+## The Pipeline
+
+```
+① Collector health        — is the data collector alive
+② Source probe            — can we actively reach the data source
+③ Data consistency        — does stored data match live source
+④ Temporal ordering       — is source data newer than the order
          │
          ▼
    can_finalize = ① ∧ ② ∧ ③ ∧ ④
@@ -34,75 +34,75 @@ tags: [payment, verification, pipeline, timeout, hold, risk-control]
     ┌────┴────┐
   true       false
    │           │
- 解冻        保持 HOLD
+ release      keep HOLD
 ```
 
-### ① 采集端在线
+### ① Collector health
 
-检查数据采集进程是否在线（通过共享状态存储如 Redis Set）：
+Check if the background collector process is alive via shared state:
 
 ```
 is_online = state_store.is_member('collector_online_set', channel_id)
 ```
 
-**异常处理策略**: 状态存储异常时**拒绝放行**而不是放行。避免采集端真实离线时错误解冻。
+When the state store is unreachable, **reject**. Don't release funds because you can't check.
 
-### ② 数据源探测（主动验证）
+### ② Source probe (active verification)
 
-在解冻前主动调用数据源（如银行 API），验证采集端能正常获取数据：
+Before unfreezing, actively call the data source to confirm the collector can actually retrieve data:
 
 ```
 result = probe_data_source(channel_id, channel_type)
 if not result.success:
-    return BLOCK  # Token 失效、网络异常等都阻止解冻
+    return BLOCK  # dead token, network failure, anything
 ```
 
-需要维护两个映射表：
-- `channel_type_id → channel_name`（数字 ID 到名称）
-- `channel_name → data_source_name`（名称到数据源的内部标识，不同渠道可能用不同爬取工具）
+This step needs two lookup tables:
+- `channel_type_id → channel_name` (numeric ID to string name)
+- `channel_name → data_source` (name to internal tool identifier)
 
-**新增渠道时必须同时更新这两个映射**。
+**Both tables must be updated when adding a channel.** Missing one gives you "unrecognized channel, can't verify."
 
-### ③ 数据一致性校验
+### ③ Data consistency
 
-比对本地存储的关键字段与数据源实时查询结果：
-
-```
-local_value = db.query("SELECT key_field FROM orders WHERE id = ?", order_id)
-live_value = fetch_from_source(channel_id, channel_type)
-if local_value != live_value:
-    return BLOCK  # 数据不一致，可能被篡改或采集异常
-```
-
-**适用范围**: 可按渠道粒度启用/禁用（部分渠道的数据源不支持实时查询）。
-
-### ④ 时间顺序校验
-
-确保数据源的最后更新时间晚于订单创建时间：
+Compare the stored key field against the live source:
 
 ```
-last_crawl_time = state_store.get(f"last_crawl:{channel_id}")
-if last_crawl_time < order_create_time:
-    return BLOCK  # 数据源还未拉到订单之后的交易
+local = db.query("SELECT key_field FROM orders WHERE id = ?", order_id)
+live  = fetch_from_source(channel_id, channel_type)
+if local != live:
+    return BLOCK  # possible tampering or collector malfunction
 ```
 
-## 添加新验证步骤的 Pattern
+Gate this per-channel — some data sources don't support real-time queries.
 
-1. **SQL 查询加字段** — 如果新检查需要额外数据
-2. **HOLD 状态持久化加字段** — 确保重试时数据可用
-3. **两个路径都插入检查** — TIMEOUT 和 HOLD_RETRY 都要改
-4. **最终判定加条件** — `can_finalize` 中加入新检查结果
-5. **检查结果记录** — 存入 `hold_reason` 结构，便于追溯
-6. **每步加日志** — 用 `[TAG][STEP]` 格式，方便集中式日志搜索
-7. **渠道门控** — 如果只针对特定渠道，加 `if channel_name in ('A', 'B'):` 跳过其他
+### ④ Temporal ordering
 
-## 状态记录结构
+Make sure the data source was last crawled *after* the order was created:
+
+```
+last_crawl = state_store.get(f"last_crawl:{channel_id}")
+if last_crawl < order_create_time:
+    return BLOCK  # source hasn't seen post-order transactions yet
+```
+
+## Adding a new check
+
+1. Add fields to the SQL query if the check needs new data
+2. Add fields to the HOLD persistence so retries have the data
+3. Insert the check in **both** TIMEOUT and HOLD_RETRY paths
+4. Add the condition to `can_finalize`
+5. Record the result in `hold_reason` for traceability
+6. Log every step with `[TAG][STEP]` format
+7. If the check is channel-specific, gate it with `if channel in ('A', 'B'):`
+
+## Hold reason structure
 
 ```json
 {
   "collector_online": true,
   "reason_collector": "online_set",
-  "data_source_probe": true,
+  "source_probe": true,
   "reason_probe": "probe_ok",
   "data_consistency": true,
   "reason_consistency": "field_match",
@@ -111,20 +111,12 @@ if last_crawl_time < order_create_time:
 }
 ```
 
-每个检查的结果和原因都记录，方便事后从日志系统追溯。
+Every check result and its reason is recorded. When something goes wrong, you can trace exactly which step failed.
 
-## 集中式日志查询
+## Pitfalls
 
-验证流程日志通常分布在多个索引/主题中：
-- 首次超时路径的日志
-- 重试路径的日志
-
-用统一的关键字段（订单 ID、渠道 ID）跨索引搜索 `[TAG]` 标记追踪完整链路。
-
-## 常见坑
-
-1. **双路径不同步** — 最常见的 bug 来源。改了一个路径忘记另一个。
-2. **渠道 ID 类型不一致** — 有时是 int 有时是 string，比较前统一 normalize。
-3. **新增渠道时映射表遗漏** — 两个映射表缺一个就会导致"无法识别的渠道，无法验证"。
-4. **存储异常时的降级策略** — 明确是"拒绝放行"还是"放行"。金融系统通常选择拒绝。
-5. **最终判定只用一次** — 所有条件合并到 `can_finalize`，不要在代码多处分别判定。
+1. **Dual-path drift** — the most common bug. Fix one path, forget the other.
+2. **Channel ID type mismatch** — sometimes `int`, sometimes `string`. Normalize before comparing.
+3. **Mapping table gaps** — two tables, both need the new channel. One missing = unverifiable.
+4. **State store failure policy** — decide once: reject or pass through? Financial systems should reject.
+5. **Scattered finalize logic** — all conditions feed into a single `can_finalize`. Don't decide in multiple places.

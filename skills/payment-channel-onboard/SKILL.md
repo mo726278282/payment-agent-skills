@@ -1,18 +1,18 @@
 ---
-name: payment-channel-adapter-pattern
-description: 多渠道支付适配器架构 — 新增支付渠道的通用模式。适用于任何需要对接多个银行/钱包/第三方支付渠道的支付系统。
+name: payment-channel-onboard
+description: Multi-channel payment adapter pattern — a repeatable checklist for onboarding new banks, wallets, or third-party payment channels.
 tags: [payment, channel, adapter, architecture, onboarding]
 ---
 
-# Payment Channel Adapter Pattern（多渠道支付适配器）
+# Payment Channel Adapter Pattern
 
-任何对接多个银行/钱包/第三方支付渠道的支付系统，都可以用这套模式统一新渠道接入。
+If you're building a system that talks to multiple banks or payment providers, use this pattern to keep each new integration consistent and contained.
 
-## 核心架构
+## Architecture
 
 ```
                     ┌──────────────────┐
-                    │   Dispatch Layer  │  ← 按 channel_name 路由
+                    │   Dispatch Layer  │  ← routes by channel_name
                     └────────┬─────────┘
                              │
               ┌──────────────┼──────────────┐
@@ -24,41 +24,42 @@ tags: [payment, channel, adapter, architecture, onboarding]
               │              │              │
               ▼              ▼              ▼
         ┌──────────────────────────────────────┐
-        │       Base Channel Handler           │  ← 共享基础设施
-        │  • 数据库操作  • Session 管理         │
-        │  • 重试/锁    • 凭证加密              │
-        │  • 代理管理   • 错误日志              │
+        │       Base Channel Handler           │  ← shared infrastructure
+        │  DB ops · Session mgmt · Retry/lock  │
+        │  Credential crypto · Proxy mgmt      │
+        │  Error logging · Health checks       │
         └──────────────────────────────────────┘
 ```
 
-## 接入清单（7 步）
+The dispatch layer doesn't need to know how each channel works. Every channel exposes the same interface. The base class owns the boring stuff — database connections, session storage, retry logic, proxy rotation, error logging. Subclasses only write the channel-specific API calls and response parsers.
 
-### 1. 研究渠道 API
+## Onboarding Checklist
 
-回答三个问题：
-- **认证方式**：OTP / OAuth2 / API Key / 证书？
-- **数据获取**：API 返回什么？关键字段在哪层 JSON？
-- **网络要求**：需要特定地区 IP？代理？
+### 1. Research the channel API
 
-### 2. 实现 Channel Handler
+Three questions you need answered before writing a line:
 
-创建 `<Channel>Handler` 类。关键方法：
+- **Auth**: OTP? OAuth2? API key? Mutual TLS?
+- **Response shape**: What does the API return? How deep is the field you need?
+- **Network**: Region-locked? Proxy required?
 
-```
-pre_login()       — 初始化会话、验证用户凭证
-send_otp()        — 发送验证码（如适用）
-verify_otp()      — 验证验证码
-fetch_accounts()  — 获取账户/钱包列表
-set_active()      — 选择活跃账户
-```
+### 2. Implement the Channel Handler
 
-**务必提取 BaseHandler** — 数据库操作、Session 管理、重试逻辑、锁、错误日志等一律放基类。子类只写渠道特有的 API 调用和响应解析逻辑。避免每个渠道复制粘贴几百行基础设施代码。
-
-### 3. 注册 Dispatch
-
-在路由层添加渠道分发：
+A `<Channel>Handler` class with these methods:
 
 ```
+pre_login()       — initialize session, verify user credentials
+send_otp()        — deliver OTP (if applicable)
+verify_otp()      — validate OTP
+fetch_accounts()  — pull account/wallet list
+set_active()      — select active account
+```
+
+If this is your second channel, **extract a BaseHandler first**. Don't let the second handler copy-paste 400 lines of infrastructure from the first. It only gets worse from there.
+
+### 3. Register in the dispatch layer
+
+```python
 if channel_name == 'channel_a':
     handler = ChannelAHandler(request)
 elif channel_name == 'channel_b':
@@ -67,17 +68,17 @@ else:
     raise UnsupportedChannelError(channel_name)
 ```
 
-每个 HTTP 接口方法（pre_login / send_otp / verify_otp / fetch_accounts / set_active）都需要添加对应分支。
+Do this in every endpoint (pre_login, send_otp, verify_otp, fetch_accounts, set_active). Missing one means a 404 with no clear error.
 
-### 4. 实现 Collector（后台采集端）
+### 4. Build the Collector (background worker)
 
-如果渠道需要后台定时轮询/长连接采集数据：
+If the channel needs a persistent process for polling or long-lived connections:
 
-- 独立进程或 worker
-- 登录 → 维持会话 → 定时拉取数据 → 回调后端
-- 处理 token 过期、代理失效等异常
+- Standalone process or worker
+- Login → maintain session → poll on interval → POST results to backend
+- Handle token expiry, proxy failures, rate limits
 
-Collector ↔ Backend 通信契约：
+The collector-to-backend contract:
 
 ```json
 {
@@ -88,47 +89,47 @@ Collector ↔ Backend 通信契约：
 }
 ```
 
-### 5. 实现数据提取器
+### 5. Build the data extractor
 
-每个渠道的 API 响应结构不同，需要一个统一的提取层：
+Every channel returns a different JSON shape. Normalize it:
 
 ```
-extract_value_by_id(id, channel_name)
-  → call_channel_api(id)
-  → extractor[channel](response_json)  ← 渠道特定解析
+fetch_value_by_id(id, channel)
+  → call_channel_api(id, channel)
+  → extractors[channel](response_json)
   → normalized_value
 ```
 
-提取器从 API 响应 JSON 中取出关键字段（账户 ID、余额、状态等），返回标准化格式。
+Each extractor is a pure function: raw API response in, normalized field out.
 
-### 6. 更新验证流水线
+### 6. Update the verification pipeline
 
-如果系统有订单超时/冻结后的验证流水线，需要：
-- 新增渠道的 **ID → 名称** 映射
-- 新增渠道的 **名称 → 数据源名称** 映射（不同渠道可能用不同爬取工具）
-- 如果新渠道需要特殊验证逻辑，加入对应的检查步骤
+If you have a timeout/hold verification pipeline, new channels need:
 
-### 7. 数据库
+- `channel_type_id → channel_name` mapping
+- `channel_name → data_source` mapping (different channels may use different scraping tools)
+- Any channel-specific verification steps
 
-渠道元数据表：
+### 7. Database
+
 ```sql
 INSERT INTO channel_type (name, status) VALUES ('CHANNEL_NAME', 1);
 ```
 
-## 验证清单
+## Verification
 
-- [ ] Handler 通过 HTTP API 测试（各接口返回正确）
-- [ ] Collector 能登录并获取数据
-- [ ] 数据回调正常更新后端状态
-- [ ] 数据提取器能查询到实时数据
-- [ ] 日志系统能看到完整的登录→获取→回调链路
-- [ ] 验证流水线（如有）对该渠道正确执行
+- [ ] Handler passes HTTP tests for every endpoint
+- [ ] Collector can login and retrieve data
+- [ ] Callback correctly updates backend state
+- [ ] Extractor returns live data for the channel
+- [ ] Log system shows the full login → fetch → callback trace
+- [ ] Verification pipeline (if present) handles this channel correctly
 
-## 常见坑
+## Pitfalls
 
-1. **手机号/账号格式** — 不同渠道格式不同（带/不带国家码），统一规范化后再比较。
-2. **代理 IP** — 部分渠道需要特定地区 IP，用配置中心管理（如 Redis key `proxy_ip_{channel}`）。
-3. **HTTP 客户端选择** — 部分渠道需要 TLS 指纹伪装（如 `curl_cffi`），普通 `requests` 可能被拦截。
-4. **Handler 重复代码** — 第一个渠道可能是独立实现，第二个渠道加入时必须提取 BaseHandler。不要等到第 5 个渠道再重构。
-5. **Dispatch 遗漏** — 每个 HTTP 接口方法都要加分支，遗漏任何一个都会导致 404/不支持错误。
-6. **渠道名映射不一致** — Handler、Dispatch、Collector、验证流水线中渠道名拼写必须一致（注意大小写和下划线）。
+1. **Phone/account format** varies per channel (with/without country code). Normalize before comparing.
+2. **Proxy requirements** are channel-specific. Store proxy configs in a config store, not hardcoded.
+3. **HTTP client** — some channels detect and block vanilla `requests`. You may need TLS fingerprint emulation (`curl_cffi`).
+4. **Handler duplication** — the first channel can be standalone. The second channel demands a BaseHandler. Don't wait until channel five.
+5. **Dispatch gaps** — every HTTP method needs the channel branch. Easy to miss one.
+6. **Naming drift** — the same channel might be spelled `paytm_business` in one place and `paytmbusiness` in another. Pick one and enforce it everywhere.
