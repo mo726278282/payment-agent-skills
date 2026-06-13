@@ -1,87 +1,83 @@
 ---
 name: git-workflow-and-versioning
-description: Git 工作流。做任何代码变更时使用——提交、分支、解决冲突、组织多路并行开发。
+description: Git workflow practices. Use when making any code change — committing, branching, resolving conflicts, or organizing parallel work.
 ---
 
-# Git 工作流
+# Git Workflow and Versioning
 
-## 概述
+## Overview
 
-Git 是安全网。commit 是存档点，branch 是沙盒，history 是文档。
+Git is your safety net. Commits are save points, branches are sandboxes, and history is documentation.
 
-## 核心原则
+## Core Principles
 
-### Trunk-Based（推荐）
+### Trunk-Based Development (Recommended)
 
 ```
-main 始终保持可部署
-  ├── fix/payment-timeout    (1-2天)
-  ├── feat/paytm-ios         (1-3天)
-  └── feat/new-channel-navi  (1天)
+main always deployable
+  ├── fix/payment-timeout    (1-2 days)
+  ├── feat/paytm-ios         (1-3 days)
+  └── feat/new-channel-navi  (1 day)
 ```
 
-- `main` 始终可部署
-- 分支存活不超过 3 天
-- 小步快合
+- `main` always deployable
+- Branches survive no longer than 3 days
+- Small, frequent merges
 
-### Commit 规范
+### Commit Discipline
 
-一个 commit = 一个逻辑变更：
+One commit = one logical change:
 ```
 ✅ "Add Paytm iOS device profile generation"
 ✅ "Fix UPI extraction for Navi bank"
 ❌ "Fix Navi UPI + update time_out + refactor BaseHandler"
 ```
 
-Commit message 格式：
+Commit message format:
 ```
-<type>: <简短描述>
+<type>: <short description>
 
-<详细说明（可选）>
+<detailed description (optional)>
 
-Ref: KPAY-123
-```
-
-Type: `feat` / `fix` / `refactor` / `test` / `docs` / `chore`
-
-### 分支命名
-
-```
-fix/<描述>      — bug 修复
-feat/<描述>     — 新功能
-refactor/<描述> — 重构
+Ref: ISSUE-123
 ```
 
-20k 项目的目标分支：`final_dev`（或 `dev_1.0.2`，与 Jira skill 保持一致）。
+Types: `feat` / `fix` / `refactor` / `test` / `docs` / `chore`
 
-### 代码审查后合并
+### Branch Naming
+
+```
+fix/<description>      — bug fixes
+feat/<description>     — new features
+refactor/<description> — refactoring
+```
+
+### Merge After Review
 
 ```bash
-# 从 final_dev 创建分支
-git checkout final_dev
-git pull origin final_dev
+# Create branch from main
+git checkout main
+git pull origin main
 git checkout -b feat/new-bank
 
-# 开发、提交
+# Develop and commit
 git add -A
 git commit -m "feat: add new bank handler"
 
-# 推送、创建 MR
+# Push and create MR
 git push origin feat/new-bank
-# 在 GitLab UI 创建 MR，目标 final_dev
+# Open MR in GitLab UI targeting main
 ```
 
-## GitLab MR 操作
+## GitLab MR via API
 
 ```bash
-# 通过 API 创建 MR
 curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
-  --data "source_branch=feat/new-bank&target_branch=final_dev&title=feat: add new bank" \
-  "http://35.241.87.36/api/v4/projects/20kpay%2Fapi/merge_requests"
+  --data "source_branch=feat/new-bank&target_branch=main&title=feat: add new bank" \
+  "https://gitlab.example.com/api/v4/projects/<project>/merge_requests"
 ```
 
-## 20k 项目注意
+## Notes
 
-- GitLab 在 `http://35.241.87.36`（内网），不是 github.com
-- 仓库路径：`20kpay/api`、`20kpay/skills` 等
-- Token 在项目 `prod.md` 或技能配置中
+- GitLab may be self-hosted (internal network), not github.com
+- Store tokens in project config, not in code

@@ -1,115 +1,109 @@
 ---
 name: spec-driven-development
-description: 先写 spec 再写代码。新项目/新功能/需求不明确时使用。
+description: Create a spec before writing code. Use when starting a new project, feature, or significant change where requirements are unclear.
 ---
 
-# 规格驱动开发
+# Spec-Driven Development
 
-## 概述
+## Overview
 
-写代码之前先写结构化规格。Spec 是你和工程师之间的共用真相源——定义要做什么、为什么、以及怎么算做完。
+Write a structured specification before writing any code. The spec is the shared source of truth — it defines what we're building, why, and how we'll know it's done. Code without a spec is guessing.
 
-无 spec 写代码 = 猜测。
+## When to Use
 
-## 何时使用
+- Starting a new project or feature
+- Requirements are ambiguous or incomplete
+- The change touches multiple files or modules
+- You're about to make an architectural decision
+- The task would take more than 30 minutes to implement
 
-- 启动新项目或功能
-- 需求模糊或残缺
-- 改动涉及多文件多模块
-- 要做架构决策
-- 预估实现超过 30 分钟
+**Skip for:** single-line fixes, config changes, pure refactoring.
 
-**不用**: 单行修复、配置变更、纯重构。
-
-## Spec 结构
+## Spec Structure
 
 ```markdown
-# Spec: [功能名]
+# Spec: [Feature Name]
 
-## 目标
-一句话描述这个功能做什么。
+## Goal
+One sentence describing what this feature does.
 
-## 背景
-为什么需要？解决什么问题？
+## Background
+Why is this needed? What problem does it solve?
 
-## 范围
-### 包含
-- 具体交付物
+## Scope
+### In Scope
+- Specific deliverables
 
-### 不包含
-- 明确排除的内容
+### Out of Scope
+- Explicitly excluded items
 
-## 设计
-### 数据流
-[架构图或数据流描述]
+## Design
+### Data Flow
+[Architecture diagram or data flow description]
 
 ### API
-[接口定义]
+[Endpoint definitions]
 
-### 数据库变更
-[表/字段变更]
+### Database Changes
+[Tables / fields to modify]
 
-## 任务拆解
-1. [任务列表]
+## Task Breakdown
+1. [Task list]
 ...
 
-## 验收标准
-- [ ] 功能正常工作的可验证标志
-- [ ] 边界情况覆盖
-- [ ] 测试通过
+## Acceptance Criteria
+- [ ] Verifiable signs that the feature works
+- [ ] Edge cases covered
+- [ ] Tests pass
 
-## 风险
-- 潜在问题和缓解方案
+## Risks
+- Potential issues and mitigations
 ```
 
-## 20k 项目示例
-
-以新增支付渠道为例：
+## Example: Adding a Payment Channel
 
 ```markdown
-# Spec: 新增 XYZ Bank 支付渠道
+# Spec: Add XYZ Bank Payment Channel
 
-## 目标
-支持 XYZ Bank 作为新的 UPI 支付渠道。
+## Goal
+Support XYZ Bank as a new payment channel.
 
-## 背景
-XYZ Bank 是印度新兴数字银行，支持 UPI VPA 查询 API。
-认证方式: OTP + OAuth2 token。
+## Background
+XYZ Bank is an emerging digital bank with UPI account query API.
+Authentication: OTP + OAuth2 token.
 
-## 范围
-### 包含
-- Bank Handler (pre_login / send_otp / verify_otp / get_upi_list)
-- Collector 采集端
-- UPI Extractor (grab_upi.py)
-- time_out 映射更新
+## Scope
+### In Scope
+- Channel Handler (pre_login / send_otp / verify_otp / fetch_accounts)
+- Background Collector
+- Data Extractor
+- Verification pipeline mappings
 
-### 不包含
-- SMS 到账通知（XYZ 无 SMS 通知）
-- WebView 登录（仅 API）
+### Out of Scope
+- SMS notification parsing (XYZ has no SMS alerts)
+- WebView login (API-only integration)
 
 ## API
-- VPA 查询: POST https://api.xyzbank.com/v1/upi/vpa
-- OTP 发送: POST https://api.xyzbank.com/v1/auth/otp/send
+- Account query: POST https://api.xyzbank.com/v1/accounts/query
+- OTP send: POST https://api.xyzbank.com/v1/auth/otp/send
 - OAuth2: POST https://api.xyzbank.com/v1/auth/token
 
-## 数据库
-- INSERT INTO bank_type (name, status) VALUES ('XYZBANK', 1)
+## Database
+- INSERT INTO channel_type (name, status) VALUES ('XYZBANK', 1)
 
-## 任务
-1. DB: bank_type 表
-2. Bank Handler: XYZBank 类
+## Tasks
+1. DB: channel_type table record
+2. Channel Handler: XYZBank class
 3. Controller dispatch
 4. Collector: jobs/xyzbank/xyzbank.py
-5. UPI Extractor
-6. time_out 映射
+5. Data Extractor
+6. Verification pipeline mappings
 
-## 验收
-- [ ] POST /api/v1/login/pre_login bankname=xyzbank 返回 session
-- [ ] Collector 能登录并获取 UPI
-- [ ] /order/Success 回调正常更新 payment.upi
-- [ ] ES 日志完整追踪链路
+## Acceptance
+- [ ] POST /api/v1/login/pre_login channel_name=xyzbank returns session
+- [ ] Collector can login and fetch accounts
+- [ ] Callback correctly updates stored state
+- [ ] Full trace visible in log system
 ```
 
-## 结合 planning-and-task-breakdown
-
-写完 spec 后，用 `planning-and-task-breakdown` 技能拆成具体实现任务。
+After writing the spec, use the `planning-and-task-breakdown` skill to decompose it into implementable tasks.

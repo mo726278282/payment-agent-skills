@@ -1,38 +1,38 @@
 ---
 name: code-simplification
-description: 代码简化——减复杂度不改行为。重构、审查发现冗余、代码能跑但难读时使用。
+description: Simplify code for clarity without changing behavior. Use when refactoring, reviewing code with accumulated complexity, or when code works but is hard to read.
 ---
 
-# 代码简化
+# Code Simplification
 
-## 概述
+## Overview
 
-简化代码——减少复杂度但保持行为不变。目标不是更少行，而是更容易读、理解、修改和调试。
+Reduce complexity while preserving exact behavior. The goal is not fewer lines — it's code that is easier to read, understand, modify, and debug.
 
-核心测试：**"一个新加入的同事能看懂这段代码吗？"**
+The core test: **"Would a new team member understand this code?"**
 
-## 简化方向
+## Simplification Axes
 
-### 1. 消除重复
+### 1. Eliminate Duplication
 
 ```python
-# Before — 两个银行 Handler 各自 copy-paste 了 400 行
-class PaytmBank:
+# Before — two bank handlers each copy-paste 400 lines of infrastructure
+class ChannelAHandler:
     async def _check_login_failed_attempts(self, phone): ...
     async def _record_login_failed_attempt(self, phone): ...
-    # ... 400 行基础设施代码
+    # ... 400 lines of boilerplate
 
-class AirtelBank:
-    async def _check_login_failed_attempts(self, phone): ...  # 完全一样
-    async def _record_login_failed_attempt(self, phone): ...  # 完全一样
-    # ... 400 行复制粘贴
+class ChannelBHandler:
+    async def _check_login_failed_attempts(self, phone): ...  # identical
+    async def _record_login_failed_attempt(self, phone): ...  # identical
+    # ... 400 lines copied
 
-# After — 提取到 BaseBankHandler，子类只需实现业务逻辑
-class PaytmBank(BaseBankHandler):
-    async def pre_login_http(self, data): ...  # 只写业务代码
+# After — extract to BaseHandler, subclasses focus on business logic
+class ChannelAHandler(BaseChannelHandler):
+    async def pre_login(self, data): ...  # business logic only
 ```
 
-### 2. 降低嵌套
+### 2. Reduce Nesting
 
 ```python
 # Before
@@ -53,7 +53,7 @@ if user.balance <= amount:
 return process()
 ```
 
-### 3. 命名表意
+### 3. Name for Intent
 
 ```python
 # Before
@@ -69,36 +69,28 @@ if result.can_unfreeze:
     execute_unfreeze(result)
 ```
 
-### 4. 函数做一件事
+### 4. One Function, One Job
 
 ```python
-# Before — 一个函数做三件事
+# Before — one function does three things
 async def handle_timeout(order):
-    # 1. 检查采集端在线
     is_online = check_collector(order.payment_id)
-    # 2. 爬取账单
-    bill = await grab_bill(order.payment_id)
-    # 3. 决定解冻/取消
+    bill = await probe_bill(order.payment_id)
     if is_online and bill:
         unfreeze(order)
     else:
         cancel(order)
 
-# After — 职责分离
+# After — separated responsibilities
 async def handle_timeout(order):
     can_unfreeze = await verify_unfreeze_conditions(order)
     execute_decision(order, can_unfreeze)
-
-async def verify_unfreeze_conditions(order):
-    collector_ok = check_collector(order.payment_id)
-    bill_ok = await probe_bill(order.payment_id)
-    return collector_ok and bill_ok
 ```
 
-## 简化原则
+## Principles
 
-- **先有测试保护** — 简化前确保测试全绿
-- **每次只改一处** — 不要同时重构多个文件
-- **改完立刻跑测试** — 确认行为不变
-- **不改行为** — 只改结构，不改功能
-- **不改测试** — 如果测试需要改，说明你改了行为
+- **Test protection first** — ensure all tests pass before simplifying
+- **One change at a time** — don't refactor multiple files simultaneously
+- **Run tests immediately** — confirm behavior unchanged after each change
+- **Don't change behavior** — only structure, not functionality
+- **Don't change tests** — if tests need changing, you changed behavior

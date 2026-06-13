@@ -1,86 +1,84 @@
 ---
 name: planning-and-task-breakdown
-description: 需求拆解成可执行任务。当你拿到 spec 或需求文档、任务太大无法下手、需要评估工作量、或需要并行分配时使用。
+description: Break work into ordered, verifiable tasks. Use when you have a spec and need to decompose it into implementable units, or when a task feels too large to start.
 ---
 
-# 任务规划和拆解
+# Planning and Task Breakdown
 
-## 概述
+## Overview
 
-把工作拆成小粒度的、可验证的任务，每个任务附明确的验收标准。好的任务拆解是 agent 稳定交付 vs 产出混乱代码的关键区别。每个任务应该小到能在单次 session 中实现、测试、验证。
+Decompose work into small, verifiable tasks with explicit acceptance criteria. Each task should be small enough to implement, test, and verify in a single focused session.
 
-## 何时使用
+## When to Use
 
-- 有 spec，需要拆成可实现的单元
-- 任务太模糊或太大，无从下手
-- 需要并行化（多 agent 协作）
-- 估算工作量
+- You have a spec and need to break it into implementable units
+- A task feels too large or vague to start
+- Work needs to be parallelized across multiple agents
+- Scoping or estimating work
 
-## 拆解原则
+## Principles
 
-### 小任务
+### Small Tasks
 
-每个任务：
-- 单文件或最多 2-3 个相关文件
-- 一道明确的变更，不是"重构认证模块"
-- 可独立测试，不依赖其他未完成的任务
-- 有明确完成标准
+Each task:
+- Touches one file or 2-3 closely related files
+- Is one clear change, not "refactor authentication module"
+- Is independently testable, not dependent on other unfinished tasks
+- Has clear completion criteria
 
-### 有序依赖
+### Ordered Dependencies
 
-标注任务间的依赖关系：
+Label dependencies between tasks:
 ```
-任务 1: 创建 bank_type 表记录          ← 无依赖
-任务 2: 实现 Bank Handler               ← 依赖 1
-任务 3: 注册 HTTP Controller dispatch   ← 依赖 2
-任务 4: 实现 Collector                  ← 依赖 1
-任务 5: 添加 UPI Extractor             ← 依赖 2
-任务 6: 更新 time_out 映射表            ← 依赖 1
-```
-
-### 验收标准
-
-每个任务写清楚"怎么算做完"：
-```
-任务 2: 实现 Bank Handler
-  ✅ pre_login_http() 通过 HTTP 接口测试
-  ✅ send_otp_http() 成功发送 OTP
-  ✅ verify_otp_http() 成功验证
-  ✅ get_upi_list_http() 返回正确 UPI 列表
+Task 1: Create channel_type table record        ← no dependency
+Task 2: Implement Channel Handler               ← depends on 1
+Task 3: Register dispatch in controller         ← depends on 2
+Task 4: Implement Collector                     ← depends on 1
+Task 5: Add data extractor                      ← depends on 2
+Task 6: Update verification pipeline mappings   ← depends on 1
 ```
 
-### 并行标记
+### Acceptance Criteria
 
-标注哪些任务可以并行：
+Every task lists "what done looks like":
 ```
-任务 4 (Collector) ∥ 任务 2 (Handler)  ← 可并行
-任务 5 (UPI Extractor) ∥ 任务 6 (time_out) ← 可并行
+Task 2: Implement Channel Handler
+  ✅ pre_login() passes HTTP API test
+  ✅ send_otp() successfully delivers OTP
+  ✅ verify_otp() validates correctly
+  ✅ fetch_accounts() returns correct account list
 ```
 
-## 输出格式
+### Parallel Markers
+
+Tag tasks that can run in parallel:
+```
+Task 4 (Collector) ∥ Task 2 (Handler)   ← parallelizable
+Task 5 (Extractor) ∥ Task 6 (Mappings)  ← parallelizable
+```
+
+## Output Format
 
 ```markdown
-## 任务拆解: [功能名]
+## Task Breakdown: [Feature Name]
 
-### 前置
-- [ ] 确认银行 API 文档
-- [ ] 获取测试账号
+### Prerequisites
+- [ ] Confirm channel API documentation
+- [ ] Obtain test credentials
 
-### 任务列表
-- [ ] 1. 数据库准备 (bank_type 表)
-- [ ] 2. Bank Handler 实现 ∥
-- [ ] 3. Controller dispatch 注册
-- [ ] 4. Collector 实现 ∥
-- [ ] 5. UPI Extractor
-- [ ] 6. time_out 映射表更新
-- [ ] 7. 端到端验证
+### Tasks
+- [ ] 1. Database setup (channel_type table)
+- [ ] 2. Channel Handler implementation ∥
+- [ ] 3. Controller dispatch registration
+- [ ] 4. Collector implementation ∥
+- [ ] 5. Data extractor
+- [ ] 6. Verification pipeline mappings
+- [ ] 7. End-to-end validation
 
-### 预估
-- 总任务: 7 个
-- 可并行: 2 组
-- 预估时间: 4-6 小时
+### Estimate
+- Total tasks: 7
+- Parallelizable: 2 groups
+- Estimated time: 4-6 hours
 ```
 
-## 结合 20k 项目
-
-对于 20k 支付系统，`payment-channel-onboard` 技能提供了标准的任务模板，直接用那个拆。
+For payment channel onboarding, use the `payment-channel-onboard` skill as the standard task template.
